@@ -1,0 +1,73 @@
+import socket
+import rsa
+import json
+import ast
+from pprint import pprint
+from server_creds import *
+
+CREDS_FILE = "creds/client1.json"
+PKDA_CREDS_FILE = "creds/pkda.json"
+
+with open (CREDS_FILE, "r") as f:
+    creds = json.load(f)
+    d, e, n = int(creds["d"]), int(creds["e"]), int(creds["n"])
+    
+with open (PKDA_CREDS_FILE, "r") as f:
+    creds = json.load(f)
+    pkda_e, pkda_n = int(creds["e"]), int(creds["n"])
+
+client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+client_socket.connect((HOST, PORT))
+
+nonce = "buttons - by the pussycat girls"
+
+# Request PKDA to get public key of client1
+request_dict = {
+    "request_type": "request_public_key",
+    "initiator": 1,
+    "requested": 0,
+    "timestamp": "ignore",
+    "nonce": nonce
+}
+
+request_str = str(request_dict)
+print(request_str)
+
+encrypted_message = str(rsa.encrypt(request_str, pkda_e, pkda_n))
+
+client_socket.send(encrypted_message.encode())
+
+# encrypted_response = int(client_socket.recv(40960).decode())
+encrypted_response = client_socket.recv(40960).decode()
+
+# response_dict = ast.literal_eval(str(rsa.decrypt(encrypted_response, d, n)))
+response_dict = ast.literal_eval(encrypted_response)
+
+print("Decrypted response from PKDA")
+pprint(response_dict)
+
+client_socket.close()
+
+
+client0_e, client0_n = int(response_dict["e"]), int(response_dict["n"])
+client1_d, client1_n, = d, n
+# Send Encrypted Message to Client1 on its listening port
+server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server_socket.bind((HOST, PORT_CLIENT1))
+server_socket.listen(5)
+client_socket, client_address = server_socket.accept()
+
+while True:
+    encrypted_response = int(client_socket.recv(40960).decode())
+
+    response = str(rsa.decrypt(encrypted_response, client1_d, client1_n))
+                   
+    print(f"client0> {response}")
+
+    message = input("client1> ")
+
+    if message == "exit":
+        client_socket.close()
+        break
+    encrypted_message = rsa.encrypt(message, client0_e, client0_n)
+    client_socket.send(str(encrypted_message).encode())
